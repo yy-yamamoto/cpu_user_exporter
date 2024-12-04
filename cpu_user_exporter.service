@@ -1,0 +1,13 @@
+[Unit]
+Description=CPU User Exporter Service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/cpu_user_exporter/cpu_user_exporter.py
+Restart=always
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target
