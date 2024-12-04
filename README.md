@@ -64,7 +64,7 @@ You can configure the exporter by editing the `Makefile`:
 After making changes, reinstall the exporter:
 
 ```bash
-make install
+sudo make install
 ```
 
 ---
@@ -94,19 +94,19 @@ You can integrate this endpoint into Prometheus for monitoring.
 - **Enable and Start:**
 
 ```bash
-make enable
+sudo make enable
 ```
 
 - **Disable and Stop:**
 
 ```bash
-make disable
+sudo make disable
 ```
 
 - **Uninstall:**
 
 ```bash
-make uninstall
+sudo make uninstall
 ```
 
 ---
@@ -163,7 +163,7 @@ sudo systemctl restart cpu_user_exporter.service
 To completely remove the exporter:
 
 ```bash
-make uninstall
+sudo make uninstall
 ```
 
 This will:
