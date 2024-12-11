@@ -6,9 +6,9 @@ SERVICE_FILE=/etc/systemd/system/cpu_user_exporter.service
 LOCAL_SERVICE_FILE=cpu_user_exporter.service
 PYTHON=python3
 SCRIPT=cpu_user_exporter.py
-DEFAULT_INTERVAL=10
+DEFAULT_INTERVAL=15
 DEFAULT_GRACE_PERIOD=60
-CPU_THRESHOLD=5.0  # デフォルトのCPU使用率の閾値
+CPU_THRESHOLD=10.0  # デフォルトのCPU使用率の閾値
 PORT=8010          # デフォルトのポート番号
 
 # Commands
