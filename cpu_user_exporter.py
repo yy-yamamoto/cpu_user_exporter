@@ -2,25 +2,39 @@
 
 import argparse
 import os
-import time
 import subprocess
+import time
 from collections import defaultdict
+
 from prometheus_client import Gauge, start_http_server
 
 # Prometheus metrics
 cpu_total_usage_gauge = Gauge("cpu_total_usage", "Total CPU Usage (%)")
 cpu_user_usage_gauge = Gauge("cpu_user_usage", "User CPU Usage (%)", ["user"])
 memory_total_usage_gauge = Gauge("memory_total_usage", "Total Memory Usage (Bytes)")
-memory_user_usage_gauge = Gauge("memory_user_usage", "User Memory Usage (Bytes)", ["user"])
+memory_user_usage_gauge = Gauge(
+    "memory_user_usage", "User Memory Usage (Bytes)", ["user"]
+)
+
 
 def getent_password():
-    """Fetch system user information."""
+    """Fetch system user information via getent."""
     passwd = subprocess.Popen(("getent", "passwd"), stdout=subprocess.PIPE)
     users = dict()
     for line in passwd.stdout:
         line = line.strip().split(b":")
         users[int(line[2])] = line[0].decode()
     return users
+
+
+def is_system_user(uid):
+    """
+    Determine if the user is considered a system user.
+    Here, we assume that uid < 1000 is a system user.
+    Adjust logic if needed.
+    """
+    return uid < 1000
+
 
 def get_total_cpu_times():
     """Get total CPU times from /proc/stat."""
@@ -34,6 +48,7 @@ def get_total_cpu_times():
             return total_cpu_time, idle_time
     return 0, 0
 
+
 def get_total_memory():
     """Get total memory from /proc/meminfo."""
     with open("/proc/meminfo", "r") as f:
@@ -44,12 +59,15 @@ def get_total_memory():
             return total_memory_kb * 1024  # Convert to bytes
     return 0
 
-def collect_cpu_memory_data():
-    """Collect CPU and memory usage data."""
+
+def collect_cpu_memory_data(exclude_system_users=False):
+    """
+    Collect CPU and memory usage data.
+    If exclude_system_users=True, skip users whose UID < 1000.
+    """
     users = getent_password()
     user_cpu_times = defaultdict(int)  # {user: total_cpu_time}
     user_memory_usage = defaultdict(int)  # {user: total_memory_usage}
-    active_users = set()
 
     total_cpu_time, idle_time = get_total_cpu_times()
     total_memory = get_total_memory()
@@ -69,8 +87,7 @@ def collect_cpu_memory_data():
                 with open(f"/proc/{pid}/statm", "r") as f:
                     statm = f.read().split()
                 rss_pages = int(statm[1])  # Resident Set Size in pages
-                # Get system page size
-                page_size = os.sysconf('SC_PAGE_SIZE')  # Bytes
+                page_size = os.sysconf("SC_PAGE_SIZE")  # Bytes
                 memory_usage = rss_pages * page_size  # Bytes
 
                 # Get process UID
@@ -81,6 +98,9 @@ def collect_cpu_memory_data():
                 )
                 if uid_line:
                     uid = int(uid_line.split()[1])
+                    if exclude_system_users and is_system_user(uid):
+                        # システムユーザを除外
+                        continue
                     user = users.get(uid, "[Unknown]")
                 else:
                     user = "[Unknown]"
@@ -88,15 +108,29 @@ def collect_cpu_memory_data():
                 user_cpu_times[user] += total_time
                 user_memory_usage[user] += memory_usage
                 total_memory_used += memory_usage
-                active_users.add(user)
+
             except (FileNotFoundError, IndexError, ValueError):
                 continue
 
-    return total_cpu_time, idle_time, user_cpu_times, total_memory, total_memory_used, user_memory_usage, active_users
+    return (
+        total_cpu_time,
+        idle_time,
+        user_cpu_times,
+        total_memory,
+        total_memory_used,
+        user_memory_usage,
+    )
 
-def update_metrics(previous_stats, grace_period, cpu_usage_threshold):
+
+def update_metrics(
+    previous_stats,
+    grace_period,
+    cpu_usage_threshold,
+    exclude_system_users=False,
+):
     """Update Prometheus metrics."""
     current_time = time.time()
+
     (
         total_cpu_time,
         idle_time,
@@ -104,8 +138,7 @@ def update_metrics(previous_stats, grace_period, cpu_usage_threshold):
         total_memory,
         total_memory_used,
         user_memory_usage,
-        active_users,
-    ) = collect_cpu_memory_data()
+    ) = collect_cpu_memory_data(exclude_system_users=exclude_system_users)
 
     if "previous_total_cpu_time" not in previous_stats:
         # First run, store current values and initialize
@@ -184,9 +217,12 @@ def update_metrics(previous_stats, grace_period, cpu_usage_threshold):
     previous_stats["previous_user_cpu_times"] = user_cpu_times
     previous_stats["last_update_time"] = current_time
 
+
 if __name__ == "__main__":
     # Parse arguments and environment variables
-    parser = argparse.ArgumentParser(description="CPU and Memory Exporter for Prometheus")
+    parser = argparse.ArgumentParser(
+        description="CPU and Memory Exporter for Prometheus"
+    )
     parser.add_argument(
         "--interval",
         type=int,
@@ -203,7 +239,7 @@ if __name__ == "__main__":
         "--cpu-threshold",
         type=float,
         default=5.0,
-        help="Minimum CPU usage percentage to consider a user active (default: 0.0%)",
+        help="Minimum CPU usage percentage to consider a user active (default: 5.0%)",
     )
     parser.add_argument(
         "--port",
@@ -211,17 +247,25 @@ if __name__ == "__main__":
         default=8010,
         help="Port number to run the exporter on (default: 8010)",
     )
+    parser.add_argument(
+        "--exclude-system-users",
+        action="store_true",
+        help="Exclude system users (UID < 1000) from metrics collection (default: False).",
+    )
     args = parser.parse_args()
 
     scrape_interval = args.interval
     grace_period = args.grace_period
     cpu_usage_threshold = args.cpu_threshold
     port = args.port
+    exclude_system_users = args.exclude_system_users  # True/False
 
     # Start Prometheus HTTP server
-    start_http_server(port)  # Use the specified port
+    start_http_server(port)
     print(
-        f"Exporter is running on port {port} with a scrape interval of {scrape_interval} seconds, grace period of {grace_period} seconds, and CPU usage threshold of {cpu_usage_threshold}%."
+        f"Exporter is running on port {port} with a scrape interval of {scrape_interval} seconds, "
+        f"grace period of {grace_period} seconds, CPU usage threshold of {cpu_usage_threshold}%, "
+        f"exclude_system_users={exclude_system_users}."
     )
 
     # Track previous CPU times and user stats
@@ -232,5 +276,10 @@ if __name__ == "__main__":
     }
 
     while True:
-        update_metrics(previous_stats, grace_period, cpu_usage_threshold)
+        update_metrics(
+            previous_stats,
+            grace_period,
+            cpu_usage_threshold,
+            exclude_system_users=exclude_system_users,
+        )
         time.sleep(scrape_interval)

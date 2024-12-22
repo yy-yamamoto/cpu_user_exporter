@@ -1,15 +1,18 @@
 # Makefile for installing and managing the CPU User Exporter
 
-# Variables
+# Default Variables (ユーザーが指定しない場合に使われるデフォルト値)
+INTERVAL ?= 15
+GRACE_PERIOD ?= 60
+CPU_THRESHOLD ?= 5.0
+PORT ?= 8010
+EXCLUDE_SYSTEM_USERS ?= true
+
+# Fixed Variables
 INSTALL_DIR=/opt/cpu_user_exporter
 SERVICE_FILE=/etc/systemd/system/cpu_user_exporter.service
 LOCAL_SERVICE_FILE=cpu_user_exporter.service
 PYTHON=python3
 SCRIPT=cpu_user_exporter.py
-DEFAULT_INTERVAL=15
-DEFAULT_GRACE_PERIOD=60
-CPU_THRESHOLD=10.0  # デフォルトのCPU使用率の閾値
-PORT=8010          # デフォルトのポート番号
 
 # Commands
 .PHONY: all install clean uninstall enable disable
@@ -18,23 +21,44 @@ all: install
 
 install:
 	@echo "Installing CPU User Exporter..."
+	@echo "Using parameters:"
+	@echo "  INTERVAL=$(INTERVAL)"
+	@echo "  GRACE_PERIOD=$(GRACE_PERIOD)"
+	@echo "  CPU_THRESHOLD=$(CPU_THRESHOLD)"
+	@echo "  PORT=$(PORT)"
+	@echo "  EXCLUDE_SYSTEM_USERS=$(EXCLUDE_SYSTEM_USERS)"
+
+	# Prepare exclude flag based on EXCLUDE_SYSTEM_USERS
+	EXCLUDE_FLAG=
+ifneq ($(EXCLUDE_SYSTEM_USERS),false)
+	EXCLUDE_FLAG=--exclude-system-users
+endif
+
 	# Create installation directory
 	mkdir -p $(INSTALL_DIR)
 	# Copy the script to the installation directory
 	cp $(SCRIPT) $(INSTALL_DIR)/
 	chmod +x $(INSTALL_DIR)/$(SCRIPT)
+
 	# Copy requirements.txt if it exists
 	if [ -f requirements.txt ]; then cp requirements.txt $(INSTALL_DIR)/; fi
+
 	# Create virtual environment and install dependencies
 	$(PYTHON) -m venv $(INSTALL_DIR)/venv
 	$(INSTALL_DIR)/venv/bin/pip install --upgrade pip
-	if [ -f $(INSTALL_DIR)/requirements.txt ]; then $(INSTALL_DIR)/venv/bin/pip install -r $(INSTALL_DIR)/requirements.txt; fi
+	if [ -f $(INSTALL_DIR)/requirements.txt ]; then \
+	    $(INSTALL_DIR)/venv/bin/pip install -r $(INSTALL_DIR)/requirements.txt; \
+	fi
 
 	# Copy the service file from the current directory
 	@echo "Installing systemd service file..."
 	cp $(LOCAL_SERVICE_FILE) $(SERVICE_FILE)
+
 	# Adjust systemd service file to use virtual environment and set variables
-	sed -i 's|ExecStart=.*|ExecStart=$(INSTALL_DIR)/venv/bin/python $(INSTALL_DIR)/$(SCRIPT) --interval $(DEFAULT_INTERVAL) --grace-period $(DEFAULT_GRACE_PERIOD) --cpu-threshold $(CPU_THRESHOLD) --port $(PORT)|' $(SERVICE_FILE)
+	# If $(EXCLUDE_FLAG) is empty, it is not added, and is only inserted if "--exclude-system-users" is desired.
+	sed -i 's|ExecStart=.*|ExecStart=$(INSTALL_DIR)/venv/bin/python $(INSTALL_DIR)/$(SCRIPT) \
+	--interval $(INTERVAL) --grace-period $(GRACE_PERIOD) \
+	--cpu-threshold $(CPU_THRESHOLD) --port $(PORT) $(EXCLUDE_FLAG)|' $(SERVICE_FILE)
 
 	# Reload systemd and enable the service
 	@echo "Enabling CPU User Exporter service..."

@@ -13,6 +13,7 @@ The **CPU User Exporter** is a Python-based tool that collects and exports CPU a
   - Grace period for metric cleanup.
   - CPU usage threshold for filtering users.
   - HTTP port for exposing metrics.
+  - (Optional) Exclude system users (UID < 1000).
 
 ---
 
@@ -32,7 +33,7 @@ Follow the steps below to install the CPU User Exporter.
 1. Clone this repository to your system:
 
 ```bash
-git clone https://github.com/your-repository/cpu-user-exporter.git
+git clone https://github.com/yy-yamamoto/cpu_user_exporter
 cd cpu-user-exporter
 ```
 
@@ -54,12 +55,28 @@ The exporter will now be running and exposing metrics on the default port `8010`
 
 ## Configuration
 
-You can configure the exporter by editing the `Makefile`:
+You can configure the exporter **dynamically** by passing arguments to the `make install` command:
 
-- **Metric scrape interval**: Set `DEFAULT_INTERVAL` (default: `10` seconds).
-- **Grace period**: Set `DEFAULT_GRACE_PERIOD` (default: `60` seconds).
-- **CPU usage threshold**: Set `CPU_THRESHOLD` (default: `5.0`%).
-- **HTTP port**: Set `PORT` (default: `8010`).
+- **Metric scrape interval**: `INTERVAL` (default: `15` seconds).
+- **Grace period**: `GRACE_PERIOD` (default: `60` seconds).
+- **CPU usage threshold**: `CPU_THRESHOLD` (default: `10.0`%).
+- **HTTP port**: `PORT` (default: `8010`).
+- **Exclude system users**: `EXCLUDE_SYSTEM_USERS` (default: `true`).
+
+For example:
+
+```bash
+sudo make install INTERVAL=20 GRACE_PERIOD=120 CPU_THRESHOLD=5.0 PORT=9000 EXCLUDE_SYSTEM_USERS=true
+```
+
+This will install the exporter with:
+- A metric scrape interval of 20 seconds
+- A grace period of 120 seconds
+- A CPU usage threshold of 5.0%
+- Listening on port 9000
+- System users (UID < 1000) are excluded
+
+If you need to make further changes, you can also edit the `Makefile` directly.
 
 After making changes, reinstall the exporter:
 
@@ -81,10 +98,10 @@ Metrics are exposed at:
 http://<your-server-ip>:<port>
 ```
 
-Example (default port):
+Example (default port 8010):
 
 ```text
-http://localhost:8000
+http://localhost:8010
 ```
 
 You can integrate this endpoint into Prometheus for monitoring.
