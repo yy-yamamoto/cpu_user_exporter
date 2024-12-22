@@ -60,11 +60,15 @@ def get_total_memory():
     return 0
 
 
-def collect_cpu_memory_data(exclude_system_users=False):
+def collect_cpu_memory_data(exclude_system_users=False, excluded_usernames=None):
     """
     Collect CPU and memory usage data.
-    If exclude_system_users=True, skip users whose UID < 1000.
+      - exclude_system_users=True の場合、UID < 1000 を除外
+      - excluded_usernames=set(...) の場合、該当ユーザ名を除外
     """
+    if excluded_usernames is None:
+        excluded_usernames = set()
+
     users = getent_password()
     user_cpu_times = defaultdict(int)  # {user: total_cpu_time}
     user_memory_usage = defaultdict(int)  # {user: total_memory_usage}
@@ -105,6 +109,10 @@ def collect_cpu_memory_data(exclude_system_users=False):
                 else:
                     user = "[Unknown]"
 
+                # ユーザ名が除外リストに含まれている場合はスキップ
+                if user in excluded_usernames:
+                    continue
+
                 user_cpu_times[user] += total_time
                 user_memory_usage[user] += memory_usage
                 total_memory_used += memory_usage
@@ -127,6 +135,7 @@ def update_metrics(
     grace_period,
     cpu_usage_threshold,
     exclude_system_users=False,
+    excluded_usernames=None,
 ):
     """Update Prometheus metrics."""
     current_time = time.time()
@@ -138,7 +147,10 @@ def update_metrics(
         total_memory,
         total_memory_used,
         user_memory_usage,
-    ) = collect_cpu_memory_data(exclude_system_users=exclude_system_users)
+    ) = collect_cpu_memory_data(
+        exclude_system_users=exclude_system_users,
+        excluded_usernames=excluded_usernames,
+    )
 
     if "previous_total_cpu_time" not in previous_stats:
         # First run, store current values and initialize
@@ -252,20 +264,33 @@ if __name__ == "__main__":
         action="store_true",
         help="Exclude system users (UID < 1000) from metrics collection (default: False).",
     )
+    parser.add_argument(
+        "--exclude-users",
+        nargs="*",
+        default=[],
+        help="List of usernames to exclude from metrics collection (space-separated).",
+    )
+
     args = parser.parse_args()
 
     scrape_interval = args.interval
     grace_period = args.grace_period
     cpu_usage_threshold = args.cpu_threshold
     port = args.port
-    exclude_system_users = args.exclude_system_users  # True/False
+    exclude_system_users = args.exclude_system_users
+
+    # デフォルト除外ユーザ（root, vmladmin）に、ユーザが指定した --exclude-users をマージする
+    default_excluded = {
+        "root",
+    }
+    excluded_usernames = default_excluded.union(args.exclude_users)
 
     # Start Prometheus HTTP server
     start_http_server(port)
     print(
         f"Exporter is running on port {port} with a scrape interval of {scrape_interval} seconds, "
         f"grace period of {grace_period} seconds, CPU usage threshold of {cpu_usage_threshold}%, "
-        f"exclude_system_users={exclude_system_users}."
+        f"exclude_system_users={exclude_system_users}, excluded_usernames={excluded_usernames}."
     )
 
     # Track previous CPU times and user stats
@@ -281,5 +306,6 @@ if __name__ == "__main__":
             grace_period,
             cpu_usage_threshold,
             exclude_system_users=exclude_system_users,
+            excluded_usernames=excluded_usernames,
         )
         time.sleep(scrape_interval)
